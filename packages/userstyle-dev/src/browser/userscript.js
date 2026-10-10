@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.6
+// @version     0.1.7
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -892,7 +892,14 @@
   }
 
   const STEP_BUDGET_MS = 30000;
+  const STEP_GAP_MS = 8000;
+  const RATE_LIMIT_WAITS = [45000, 90000, 120000, 180000];
   const pageBoot = Date.now();
+  let pauseUntil = 0;
+
+  function isRateLimited() {
+    return /429|rate limit|captcha/i.test(document.title || "");
+  }
 
   function domReadyForCapture() {
     if (
@@ -915,14 +922,17 @@
 
   function goToQueueUrl(url) {
     // Assigning the current URL does not reload, so an explore step whose
-    // seed is the page we just captured would never run.
-    if (urlsMatch(location.href, url)) {
-      setTimeout(() => {
+    // seed is the page we just captured would never run. The gap keeps the
+    // walk from tripping rule34's rate limit.
+    pauseUntil = Date.now() + STEP_GAP_MS;
+    setTimeout(() => {
+      pauseUntil = 0;
+      if (urlsMatch(location.href, url)) {
         void runQueueStep();
-      }, 0);
-      return;
-    }
-    location.assign(url);
+        return;
+      }
+      location.assign(url);
+    }, STEP_GAP_MS);
   }
 
   function advanceQueue(queue) {
@@ -940,7 +950,7 @@
   }
 
   async function runQueueStep() {
-    if (queueRunning) {
+    if (Date.now() < pauseUntil || queueRunning) {
       return;
     }
     const queue = loadQueue();
@@ -958,6 +968,31 @@
     const label = `Snapshot all ${queue.index + 1}/${total} · ${step.id}`;
 
     try {
+      if (isRateLimited()) {
+        const attempt = (step.rateLimitAttempts || 0) + 1;
+        step.rateLimitAttempts = attempt;
+        if (attempt > RATE_LIMIT_WAITS.length) {
+          queue.results.push({
+            id: step.id,
+            ok: false,
+            error: "rate limited",
+          });
+          saveQueue(queue);
+          queueLog(`${label} rate limited, skipping`);
+          advanceQueue(queue);
+          return;
+        }
+        const wait = RATE_LIMIT_WAITS[attempt - 1];
+        step.deadlineHref = location.href;
+        step.deadlineAt = Date.now() + wait;
+        saveQueue(queue);
+        pauseUntil = Date.now() + wait;
+        toast(`${label} rate limited — retrying in ${Math.round(wait / 1000)}s`, 0);
+        queueLog(`${label} rate limited, retry in ${Math.round(wait / 1000)}s`);
+        setTimeout(() => location.reload(), wait);
+        return;
+      }
+
       if (step.deadlineHref !== location.href) {
         step.deadlineHref = location.href;
         step.deadlineAt = Date.now();
