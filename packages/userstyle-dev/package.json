@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "bin": {
-    "userstyle-dev": "./src/cli.mjs"
+    "userstyle-dev": "src/cli.mjs"
   },
   "files": [
     "src",
