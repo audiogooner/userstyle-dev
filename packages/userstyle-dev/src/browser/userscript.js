@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.0
+// @version     0.1.2
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -222,6 +222,8 @@
       border: 1px solid #45475a;
       border-radius: 10px;
       overflow: hidden;
+      background: rgba(30, 30, 46, 0.8);
+      backdrop-filter: blur(10px);
     }
     .fab[hidden], .panel[hidden], .toast[hidden] { display: none; }
     header {
@@ -229,7 +231,7 @@
       align-items: center;
       gap: 8px;
       padding: 8px 10px;
-      background: #181825;
+      background: rgba(24, 24, 37, 0.4);
       border-bottom: 1px solid #313244;
       cursor: grab;
       touch-action: none;
@@ -326,7 +328,6 @@
     }
     .actions button:hover { border-color: #89b4fa; }
     .actions button[hidden] { display: none; }
-    .hint { margin-top: 6px; color: #6c7086; font-size: 10px; }
     .toast {
       position: absolute;
       right: 0;
@@ -518,7 +519,6 @@
               <button type="button" data-act="snapshot-stop" hidden title="Cancel snapshot-all queue">Stop</button>
               <button type="button" data-act="reset">Reset</button>
             </div>
-            <div class="hint">All = snapshot catalog · × hides · Alt+Shift+D · Alt+Shift+S</div>
           </div>
         </div>
       </div>
@@ -962,20 +962,24 @@
     if (!loadQueue()) {
       return;
     }
+    let started = false;
     const start = () => {
-      void runQueueStep();
+      if (started) {
+        return;
+      }
+      started = true;
+      setTimeout(() => {
+        void runQueueStep();
+      }, 500);
     };
-    if (document.readyState === "complete") {
-      setTimeout(start, 500);
-    } else {
-      window.addEventListener(
-        "load",
-        () => {
-          setTimeout(start, 500);
-        },
-        { once: true },
-      );
+    // window "load" waits for images, video, and ads. A post page can sit
+    // there until a webm finishes, so the queue never reaches the next page.
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", start, { once: true });
+      setTimeout(start, 8000);
+      return;
     }
+    start();
   }
 
   async function tick() {
