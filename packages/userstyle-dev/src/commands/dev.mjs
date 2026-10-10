@@ -257,6 +257,12 @@ export async function startDev() {
       return;
     }
 
+    if (url.pathname === "/queue-log") {
+      console.log(`[${timestamp()}] queue ${url.searchParams.get("msg") || ""}`);
+      send(res, 200, "ok", "text/plain; charset=utf-8");
+      return;
+    }
+
     if (url.pathname === "/snapshot-capture.js") {
       send(res, 200, captureDriver(), "text/javascript; charset=utf-8");
       return;

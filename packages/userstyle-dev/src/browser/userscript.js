@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.2
+// @version     0.1.3
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -859,6 +859,76 @@
     renderOverlay();
   }
 
+  const STEP_BUDGET_MS = 20000;
+
+  function queueLog(message) {
+    gmFetch(`${HOST}/queue-log?msg=${encodeURIComponent(message)}`, {
+      timeout: 2000,
+    }).catch(() => {});
+  }
+
+  function neuterBlockingResources() {
+    const tags = new Set([
+      "IMG",
+      "VIDEO",
+      "AUDIO",
+      "IFRAME",
+      "SOURCE",
+      "EMBED",
+      "OBJECT",
+    ]);
+    const neuter = (el) => {
+      if (!el || el.nodeType !== 1 || !tags.has(el.tagName)) {
+        return;
+      }
+      if (el.tagName === "VIDEO" || el.tagName === "AUDIO") {
+        el.autoplay = false;
+        el.preload = "none";
+        try {
+          el.pause();
+        } catch {
+          /* element not playable yet */
+        }
+      }
+      for (const attr of ["src", "srcset"]) {
+        const value = el.getAttribute(attr);
+        if (!value) {
+          continue;
+        }
+        const leaf = value.split("/").pop().split("?")[0];
+        if (leaf && !el.hasAttribute(`data-snapshot-${attr}`)) {
+          el.setAttribute(`data-snapshot-${attr}`, leaf.slice(0, 120));
+        }
+        el.removeAttribute(attr);
+      }
+    };
+    const scan = (node) => {
+      if (!node || node.nodeType !== 1) {
+        return;
+      }
+      neuter(node);
+      node
+        .querySelectorAll("img, video, audio, iframe, source, embed, object")
+        .forEach(neuter);
+    };
+    const root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    scan(root);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          scan(node);
+        }
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    const stop = () => observer.disconnect();
+    document.addEventListener("DOMContentLoaded", stop, { once: true });
+    setTimeout(stop, 4000);
+  }
+
   function advanceQueue(queue) {
     queue.index += 1;
     saveQueue(queue);
@@ -869,6 +939,7 @@
     const next = queue.steps[queue.index];
     const url = next.type === "explore" ? next.seed : next.url;
     toast(`Snapshot all ${queue.index + 1}/${queue.steps.length} · ${next.id}`, 0);
+    queueLog(`${queue.index + 1}/${queue.steps.length} ${next.id} -> ${url}`);
     location.assign(url);
   }
 
@@ -891,20 +962,49 @@
     const label = `Snapshot all ${queue.index + 1}/${total} · ${step.id}`;
 
     try {
+      if (!step.startedAt) {
+        step.startedAt = Date.now();
+        saveQueue(queue);
+      } else if (Date.now() - step.startedAt > STEP_BUDGET_MS) {
+        queue.results.push({
+          id: step.id,
+          ok: false,
+          error: `timed out on ${location.href}`,
+        });
+        queueLog(`${label} timed out`);
+        advanceQueue(queue);
+        return;
+      }
+
+      if (document.readyState !== "loading") {
+        try {
+          window.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (step.type === "explore") {
         if (!urlsMatch(location.href, step.seed) && !step.navigated) {
           queue.steps[queue.index] = { ...step, navigated: true };
           saveQueue(queue);
           toast(label, 0);
+          queueLog(`${label} seed`);
           location.assign(step.seed);
           return;
         }
 
         try {
           const url = exploreUrl(step.explore, document);
-          queue.steps[queue.index] = { type: "capture", id: step.id, url };
+          queue.steps[queue.index] = {
+            type: "capture",
+            id: step.id,
+            url,
+            startedAt: step.startedAt,
+          };
           saveQueue(queue);
           toast(label, 0);
+          queueLog(`${label} explore ${url}`);
           location.assign(url);
         } catch (error) {
           queue.results.push({
@@ -922,18 +1022,25 @@
           queue.steps[queue.index] = { ...step, navigated: true };
           saveQueue(queue);
           toast(label, 0);
+          queueLog(`${label} goto ${step.url}`);
           location.assign(step.url);
           return;
         }
 
         toast(`Capturing ${label}`, 0);
+        queueLog(`${label} capture ${location.href}`);
         let outcome;
         try {
-          const result = await snapshot({
-            skipPreviews: true,
-            quiet: true,
-            id: step.id,
-          });
+          const result = await Promise.race([
+            snapshot({
+              skipPreviews: true,
+              quiet: true,
+              id: step.id,
+            }),
+            new Promise((_, reject) => {
+              setTimeout(() => reject(new Error("capture timed out")), 15000);
+            }),
+          ]);
           outcome =
             result.id !== step.id
               ? {
@@ -951,6 +1058,7 @@
           return;
         }
         latest.results.push(outcome);
+        queueLog(`${label} ${outcome.ok ? "ok" : outcome.error}`);
         advanceQueue(latest);
       }
     } finally {
@@ -962,6 +1070,9 @@
     if (!loadQueue()) {
       return;
     }
+    // Drop image, video, and ad frame URLs before the browser fetches them.
+    // A post page otherwise waits on a webm or an ad and never advances.
+    neuterBlockingResources();
     let started = false;
     const start = () => {
       if (started) {
@@ -970,13 +1081,11 @@
       started = true;
       setTimeout(() => {
         void runQueueStep();
-      }, 500);
+      }, 300);
     };
-    // window "load" waits for images, video, and ads. A post page can sit
-    // there until a webm finishes, so the queue never reaches the next page.
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", start, { once: true });
-      setTimeout(start, 8000);
+      setTimeout(start, 2000);
       return;
     }
     start();
