@@ -1,0 +1,25 @@
+{
+  "name": "create-userstyle",
+  "version": "0.1.0",
+  "description": "Scaffold a UserStyle project that uses userstyle-dev",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "create-userstyle": "./src/cli.mjs"
+  },
+  "files": [
+    "src",
+    "template",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,29 @@
+@use "palette";
+
+:root {
+  @include palette.palette;
+}
+
+html,
+body {
+  background-color: var(--base) !important;
+  color: var(--text) !important;
+}
+
+a {
+  color: var(--blue) !important;
+}
+
+textarea,
+input {
+  background-color: var(--surface0);
+  border: solid 1px var(--surface1) !important;
+  outline: none;
+  border-radius: 7px;
+  color: var(--text);
+
+  &:focus {
+    background-color: var(--surface0) !important;
+    border-color: var(--blue) !important;
+  }
+}

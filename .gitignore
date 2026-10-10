@@ -1,0 +1,4 @@
+node_modules/
+lint-results.json
+*.tgz
+.DS_Store

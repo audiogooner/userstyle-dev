@@ -1,0 +1,32 @@
+{
+  "name": "userstyle-dev",
+  "version": "0.1.0",
+  "description": "Dev server, export, lint, and snapshot tooling for UserStyle projects",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "userstyle-dev": "./src/cli.mjs"
+  },
+  "files": [
+    "src",
+    "editor",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "lightningcss": "^1.33.0",
+    "linkedom": "^0.18.12",
+    "sass": "^1.90.0",
+    "source-map-js": "^1.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

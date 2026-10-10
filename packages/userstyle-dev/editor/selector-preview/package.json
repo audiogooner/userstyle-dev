@@ -1,0 +1,14 @@
+{
+  "name": "userstyle-selector-preview",
+  "displayName": "Userstyle selector preview",
+  "description": "Hover SCSS selectors to see captured element screenshots",
+  "version": "0.1.0",
+  "publisher": "userstyle-dev",
+  "private": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onLanguage:scss", "onLanguage:css"],
+  "main": "./extension.js"
+}

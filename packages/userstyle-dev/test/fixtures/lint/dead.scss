@@ -1,0 +1,11 @@
+.present {
+  color: blue;
+}
+
+.missing-element {
+  color: red;
+}
+
+.present:hover {
+  color: green;
+}
