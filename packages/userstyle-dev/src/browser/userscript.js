@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.4
+// @version     0.1.5
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -867,6 +867,18 @@
     }).catch(() => {});
   }
 
+  function goToQueueUrl(url) {
+    // Assigning the current URL does not reload, so an explore step whose
+    // seed is the page we just captured would never run.
+    if (urlsMatch(location.href, url)) {
+      setTimeout(() => {
+        void runQueueStep();
+      }, 0);
+      return;
+    }
+    location.assign(url);
+  }
+
   function advanceQueue(queue) {
     queue.index += 1;
     saveQueue(queue);
@@ -878,7 +890,7 @@
     const url = next.type === "explore" ? next.seed : next.url;
     toast(`Snapshot all ${queue.index + 1}/${queue.steps.length} · ${next.id}`, 0);
     queueLog(`${queue.index + 1}/${queue.steps.length} ${next.id} -> ${url}`);
-    location.assign(url);
+    goToQueueUrl(url);
   }
 
   async function runQueueStep() {
@@ -920,7 +932,7 @@
           saveQueue(queue);
           toast(label, 0);
           queueLog(`${label} seed`);
-          location.assign(step.seed);
+          goToQueueUrl(step.seed);
           return;
         }
 
@@ -935,7 +947,7 @@
           saveQueue(queue);
           toast(label, 0);
           queueLog(`${label} explore ${url}`);
-          location.assign(url);
+          goToQueueUrl(url);
         } catch (error) {
           queue.results.push({
             id: step.id,
@@ -953,7 +965,7 @@
           saveQueue(queue);
           toast(label, 0);
           queueLog(`${label} goto ${step.url}`);
-          location.assign(step.url);
+          goToQueueUrl(step.url);
           return;
         }
 
