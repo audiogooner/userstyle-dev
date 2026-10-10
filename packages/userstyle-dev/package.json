@@ -1,6 +1,6 @@
 {
   "name": "userstyle-dev",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Dev server, export, lint, and snapshot tooling for UserStyle projects",
   "license": "MIT",
   "type": "module",
