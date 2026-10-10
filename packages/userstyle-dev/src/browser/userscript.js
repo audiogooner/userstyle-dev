@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.3
+// @version     0.1.4
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -867,68 +867,6 @@
     }).catch(() => {});
   }
 
-  function neuterBlockingResources() {
-    const tags = new Set([
-      "IMG",
-      "VIDEO",
-      "AUDIO",
-      "IFRAME",
-      "SOURCE",
-      "EMBED",
-      "OBJECT",
-    ]);
-    const neuter = (el) => {
-      if (!el || el.nodeType !== 1 || !tags.has(el.tagName)) {
-        return;
-      }
-      if (el.tagName === "VIDEO" || el.tagName === "AUDIO") {
-        el.autoplay = false;
-        el.preload = "none";
-        try {
-          el.pause();
-        } catch {
-          /* element not playable yet */
-        }
-      }
-      for (const attr of ["src", "srcset"]) {
-        const value = el.getAttribute(attr);
-        if (!value) {
-          continue;
-        }
-        const leaf = value.split("/").pop().split("?")[0];
-        if (leaf && !el.hasAttribute(`data-snapshot-${attr}`)) {
-          el.setAttribute(`data-snapshot-${attr}`, leaf.slice(0, 120));
-        }
-        el.removeAttribute(attr);
-      }
-    };
-    const scan = (node) => {
-      if (!node || node.nodeType !== 1) {
-        return;
-      }
-      neuter(node);
-      node
-        .querySelectorAll("img, video, audio, iframe, source, embed, object")
-        .forEach(neuter);
-    };
-    const root = document.documentElement;
-    if (!root) {
-      return;
-    }
-    scan(root);
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        for (const node of record.addedNodes) {
-          scan(node);
-        }
-      }
-    });
-    observer.observe(root, { childList: true, subtree: true });
-    const stop = () => observer.disconnect();
-    document.addEventListener("DOMContentLoaded", stop, { once: true });
-    setTimeout(stop, 4000);
-  }
-
   function advanceQueue(queue) {
     queue.index += 1;
     saveQueue(queue);
@@ -974,14 +912,6 @@
         queueLog(`${label} timed out`);
         advanceQueue(queue);
         return;
-      }
-
-      if (document.readyState !== "loading") {
-        try {
-          window.stop();
-        } catch {
-          /* ignore */
-        }
       }
 
       if (step.type === "explore") {
@@ -1070,9 +1000,6 @@
     if (!loadQueue()) {
       return;
     }
-    // Drop image, video, and ad frame URLs before the browser fetches them.
-    // A post page otherwise waits on a webm or an ad and never advances.
-    neuterBlockingResources();
     let started = false;
     const start = () => {
       if (started) {
