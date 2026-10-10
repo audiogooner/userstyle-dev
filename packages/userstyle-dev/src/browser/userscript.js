@@ -1,10 +1,13 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.5
+// @version     0.1.6
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
+// @grant       GM_getValue
+// @grant       GM_setValue
+// @grant       GM_deleteValue
 // @connect     127.0.0.1
 // @connect     localhost
 // @connect     __CONNECT_HOST__
@@ -699,6 +702,16 @@
   }
 
   function loadQueue() {
+    // Page scripts can clear sessionStorage, and it can throw at document-start.
+    // The userscript store survives both.
+    try {
+      const raw = GM_getValue(QUEUE_KEY, "");
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch {
+      /* ignore */
+    }
     try {
       return JSON.parse(sessionStorage.getItem(QUEUE_KEY) || "null");
     } catch {
@@ -707,11 +720,30 @@
   }
 
   function saveQueue(queue) {
-    sessionStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    const raw = JSON.stringify(queue);
+    try {
+      GM_setValue(QUEUE_KEY, raw);
+    } catch (error) {
+      queueLog(`save failed ${error.message}`);
+    }
+    try {
+      sessionStorage.setItem(QUEUE_KEY, raw);
+    } catch {
+      /* ignore quota / document-start */
+    }
   }
 
   function clearQueue() {
-    sessionStorage.removeItem(QUEUE_KEY);
+    try {
+      GM_deleteValue(QUEUE_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      sessionStorage.removeItem(QUEUE_KEY);
+    } catch {
+      /* ignore */
+    }
   }
 
   function urlsMatch(currentHref, targetHref) {
@@ -859,7 +891,21 @@
     renderOverlay();
   }
 
-  const STEP_BUDGET_MS = 20000;
+  const STEP_BUDGET_MS = 30000;
+  const pageBoot = Date.now();
+
+  function domReadyForCapture() {
+    if (
+      document.readyState === "interactive" ||
+      document.readyState === "complete"
+    ) {
+      return true;
+    }
+    // A module script that fails (the Cloudflare beacon) can leave
+    // readyState at "loading" and hold DOMContentLoaded. The parser is
+    // not blocked by that script, so the DOM is usable after a short wait.
+    return Boolean(document.body) && Date.now() - pageBoot > 3000;
+  }
 
   function queueLog(message) {
     gmFetch(`${HOST}/queue-log?msg=${encodeURIComponent(message)}`, {
@@ -912,10 +958,11 @@
     const label = `Snapshot all ${queue.index + 1}/${total} · ${step.id}`;
 
     try {
-      if (!step.startedAt) {
-        step.startedAt = Date.now();
+      if (step.deadlineHref !== location.href) {
+        step.deadlineHref = location.href;
+        step.deadlineAt = Date.now();
         saveQueue(queue);
-      } else if (Date.now() - step.startedAt > STEP_BUDGET_MS) {
+      } else if (Date.now() - step.deadlineAt > STEP_BUDGET_MS) {
         queue.results.push({
           id: step.id,
           ok: false,
@@ -926,16 +973,34 @@
         return;
       }
 
-      if (step.type === "explore") {
-        if (!urlsMatch(location.href, step.seed) && !step.navigated) {
-          queue.steps[queue.index] = { ...step, navigated: true };
-          saveQueue(queue);
-          toast(label, 0);
-          queueLog(`${label} seed`);
-          goToQueueUrl(step.seed);
-          return;
-        }
+      if (step.type === "explore" && !urlsMatch(location.href, step.seed) && !step.navigated) {
+        queue.steps[queue.index] = { ...step, navigated: true };
+        saveQueue(queue);
+        toast(label, 0);
+        queueLog(`${label} seed`);
+        goToQueueUrl(step.seed);
+        return;
+      }
 
+      if (step.type === "capture" && !urlsMatch(location.href, step.url) && !step.navigated) {
+        queue.steps[queue.index] = { ...step, navigated: true };
+        saveQueue(queue);
+        toast(label, 0);
+        queueLog(`${label} goto ${step.url}`);
+        goToQueueUrl(step.url);
+        return;
+      }
+
+      if (!domReadyForCapture()) {
+        if (!step.domWaitLogged) {
+          step.domWaitLogged = true;
+          saveQueue(queue);
+          queueLog(`${label} waiting ready=${document.readyState}`);
+        }
+        return;
+      }
+
+      if (step.type === "explore") {
         try {
           const url = exploreUrl(step.explore, document);
           queue.steps[queue.index] = {
@@ -960,15 +1025,6 @@
       }
 
       if (step.type === "capture") {
-        if (!urlsMatch(location.href, step.url) && !step.navigated) {
-          queue.steps[queue.index] = { ...step, navigated: true };
-          saveQueue(queue);
-          toast(label, 0);
-          queueLog(`${label} goto ${step.url}`);
-          goToQueueUrl(step.url);
-          return;
-        }
-
         toast(`Capturing ${label}`, 0);
         queueLog(`${label} capture ${location.href}`);
         let outcome;
@@ -1009,25 +1065,29 @@
   }
 
   function scheduleQueueResume() {
-    if (!loadQueue()) {
+    const queue = loadQueue();
+    const step = queue?.steps?.[queue.index];
+    queueLog(
+      `boot ${location.href} ready=${document.readyState} step=${
+        step ? `${step.type}:${step.id}` : "none"
+      }`,
+    );
+    if (!queue) {
       return;
     }
-    let started = false;
-    const start = () => {
-      if (started) {
+    const kick = () => {
+      void runQueueStep();
+    };
+    document.addEventListener("DOMContentLoaded", kick, { once: true });
+    document.addEventListener("readystatechange", kick);
+    kick();
+    const timer = setInterval(() => {
+      if (!loadQueue()) {
+        clearInterval(timer);
         return;
       }
-      started = true;
-      setTimeout(() => {
-        void runQueueStep();
-      }, 300);
-    };
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", start, { once: true });
-      setTimeout(start, 2000);
-      return;
-    }
-    start();
+      kick();
+    }, 1000);
   }
 
   async function tick() {
@@ -1103,16 +1163,24 @@
     }
   });
 
-  observeSiteCss();
-  applySiteCss();
-  applyBlackout();
+  try {
+    scheduleQueueResume();
+  } catch (error) {
+    queueLog(`resume failed ${error.message}`);
+  }
+  try {
+    observeSiteCss();
+    applySiteCss();
+    applyBlackout();
+  } catch (error) {
+    queueLog(`init failed ${error.message}`);
+  }
   document.addEventListener("DOMContentLoaded", applySiteCss);
   document.addEventListener("userstyle-dev-toast", (event) => {
     if (event.detail) {
       toast(String(event.detail));
     }
   });
-  scheduleQueueResume();
   tick();
   setInterval(tick, POLL_MS);
 })();
