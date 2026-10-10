@@ -82,6 +82,14 @@ export function serverPort(config = getConfig()) {
   return Number(process.env.PORT) || Number(config.port) || 3847;
 }
 
+export function snapshotGapMs(config = getConfig()) {
+  const value = Number(config.snapshotGapMs);
+  if (!Number.isFinite(value) || value < 0) {
+    return 2000;
+  }
+  return value;
+}
+
 export function blackoutCss(config = getConfig()) {
   if (typeof config.blackoutCss === "string" && config.blackoutCss.trim()) {
     return config.blackoutCss;

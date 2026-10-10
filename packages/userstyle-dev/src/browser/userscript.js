@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        __STYLE_NAME__ — live inject
 // @namespace   __NAMESPACE__
-// @version     0.1.7
+// @version     0.1.8
 // @description Development injector: live CSS, overlay to toggle bundles, snapshot capture
 // @match       __MATCH__
 // @grant       GM_xmlhttpRequest
@@ -856,6 +856,7 @@
         index: 0,
         results: [],
         startedAt: Date.now(),
+        gapMs: Number.isFinite(Number(data.gapMs)) ? Number(data.gapMs) : STEP_GAP_MS,
       });
       renderOverlay();
       toast(`Snapshot all 1/${steps.length} · ${steps[0].id}`, 0);
@@ -892,7 +893,12 @@
   }
 
   const STEP_BUDGET_MS = 30000;
-  const STEP_GAP_MS = 8000;
+  const STEP_GAP_MS = 2000;
+
+  function stepGapMs() {
+    const gap = Number(loadQueue()?.gapMs);
+    return Number.isFinite(gap) && gap >= 0 ? gap : STEP_GAP_MS;
+  }
   const RATE_LIMIT_WAITS = [45000, 90000, 120000, 180000];
   const pageBoot = Date.now();
   let pauseUntil = 0;
@@ -922,9 +928,9 @@
 
   function goToQueueUrl(url) {
     // Assigning the current URL does not reload, so an explore step whose
-    // seed is the page we just captured would never run. The gap keeps the
-    // walk from tripping rule34's rate limit.
-    pauseUntil = Date.now() + STEP_GAP_MS;
+    // seed is the page we just captured would never run.
+    const gap = stepGapMs();
+    pauseUntil = Date.now() + gap;
     setTimeout(() => {
       pauseUntil = 0;
       if (urlsMatch(location.href, url)) {
@@ -932,7 +938,7 @@
         return;
       }
       location.assign(url);
-    }, STEP_GAP_MS);
+    }, gap);
   }
 
   function advanceQueue(queue) {

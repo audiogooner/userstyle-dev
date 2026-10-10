@@ -12,6 +12,7 @@ import {
   serverHost,
   serverPort,
   siteOf,
+  snapshotGapMs as readSnapshotGapMs,
 } from "../context.mjs";
 import {
   assembleUserstyle,
@@ -38,6 +39,7 @@ let compiled = [];
 let generation = 0;
 let compileError = null;
 let snapshotCatalog = [];
+let snapshotGapMs = 2000;
 
 async function compile() {
   try {
@@ -49,6 +51,7 @@ async function compile() {
       config.snapshotPages || [],
       siteOf(config).origin,
     );
+    snapshotGapMs = readSnapshotGapMs(config);
     compileError = null;
     generation += 1;
     console.log(
@@ -272,7 +275,7 @@ export async function startDev() {
       send(
         res,
         200,
-        JSON.stringify({ pages: snapshotCatalog }),
+        JSON.stringify({ pages: snapshotCatalog, gapMs: snapshotGapMs }),
         "application/json; charset=utf-8",
       );
       return;
